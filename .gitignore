@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+_ref_opengym
+android
+ios
+.env
+.env.*
+!.env.development
+!.env.production
+.vercel
