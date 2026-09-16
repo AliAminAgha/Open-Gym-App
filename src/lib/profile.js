@@ -47,6 +47,8 @@ export function emptyProfile() {
     experience: null,    // beginner | intermediate | advanced
     goal: null,
     targetW: null,
+    lossAmount: null,   // positive amount to lose (same unit as S.unit)
+    lossPace: 'moderate', // slow | moderate | faster — drives calorie deficit
     daysPerWeek: 3,
     sessionMin: 45,
     preferredDays: [1, 3, 5],
@@ -91,3 +93,25 @@ export function heightCmOf(profile) {
   const h = profile?.heightCm
   return h > 0 ? h : null
 }
+
+/** Convert a profile weight field stored in the app's display unit → kg. */
+export function weightToKg(w, unit) {
+  if (!(w > 0)) return null
+  return unit === 'lb' ? w * 0.453592 : w
+}
+
+/** Amount the user wants to lose (kg), from lossAmount or current − target. */
+export function lossAmountKg(profile, currentKg, unit = 'kg') {
+  if (profile?.lossAmount > 0) return weightToKg(profile.lossAmount, unit)
+  if (currentKg > 0 && profile?.targetW > 0) {
+    const targetKg = weightToKg(profile.targetW, unit)
+    if (targetKg > 0 && currentKg > targetKg) return currentKg - targetKg
+  }
+  return null
+}
+
+export const LOSS_PACE = [
+  { id: 'slow', label: 'Slow', kgPerWeek: 0.25 },
+  { id: 'moderate', label: 'Moderate', kgPerWeek: 0.5 },
+  { id: 'faster', label: 'Faster', kgPerWeek: 0.75 }
+]

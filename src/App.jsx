@@ -28,7 +28,11 @@ import Coach from './views/Coach.jsx'
 import CoachIntake from './views/CoachIntake.jsx'
 import CoachProposal from './views/CoachProposal.jsx'
 import TrainingSetup from './views/TrainingSetup.jsx'
+import Onboarding from './views/Onboarding/Onboarding.jsx'
 import Nutrition from './views/Nutrition.jsx'
+import Partner from './views/Partner.jsx'
+import { hasProfile } from './lib/profile.js'
+import { DEMO } from './lib/demo.js'
 
 bindUI(useUI)   // lets the shared controls open sheets without importing the store at module scope
 
@@ -37,7 +41,7 @@ function applyPrefs(theme, accent) {
   de.dataset.theme = theme === 'light' ? 'light' : 'dark'
   de.dataset.accent = ACCENTS[accent] ? accent : 'lime'
   const meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.content = de.dataset.theme === 'light' ? '#f4f6f8' : '#060708'
+  if (meta) meta.content = de.dataset.theme === 'light' ? '#f4f6f8' : '#000000'
 }
 
 function Shell() {
@@ -56,6 +60,22 @@ function Shell() {
   useWakeLock(!!S.active && S.keepAwake !== false)
 
   const authed = user || isGuest
+
+  // First-run gate: empty profile (non-demo) → light onboarding.
+  // Completed profiles never get forced back — restart only via Settings (?restart=1).
+  useEffect(() => {
+    if (!ready || !authed) return
+    const path = loc.pathname
+    const restarting = new URLSearchParams(loc.search).get('restart') === '1'
+    if (hasProfile(S)) {
+      if (path === '/onboarding' && !restarting) navigate('/home', { replace: true })
+      return
+    }
+    if (DEMO) return
+    if (path === '/onboarding' || path === '/setup') return
+    navigate('/onboarding', { replace: true })
+  }, [ready, authed, S.profile, loc.pathname, loc.search, navigate])
+
   if (!ready && !authed) return (
     <div id="app">
       <div style={{ paddingTop: '44vh', display: 'flex', justifyContent: 'center', fontSize: 34, color: 'var(--label-3)' }}>
@@ -87,7 +107,9 @@ function Shell() {
               <Route path="/coach/intake" element={<CoachIntake />} />
               <Route path="/coach/proposal" element={<CoachProposal />} />
               <Route path="/setup" element={<TrainingSetup />} />
+              <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/nutrition" element={<Nutrition />} />
+              <Route path="/partner" element={<Partner />} />
               <Route path="/admin" element={user?.admin ? <Admin /> : <Navigate to="/home" replace />} />
               <Route path="*" element={<Navigate to="/home" replace />} />
             </Routes>

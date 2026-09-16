@@ -5,7 +5,7 @@ import { EXIDX } from '../lib/exercises.js'
 import { lastBW, streakWeeks, setLabel, modeOf, effortOf } from '../lib/history.js'
 import { fmtNum, fmtDate, fmtVol, todayISO, weekKey } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
-import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow, bwDeltaColor } from '../sheets.jsx'
+import { bwSheet, goalSheet, calendarSheet, workoutDetailSheet, WorkoutRow } from '../sheets.jsx'
 import LineChart from '../components/LineChart.jsx'
 import Heatmap from '../components/Heatmap.jsx'
 import Icon from '../components/Icon.jsx'
@@ -146,8 +146,6 @@ export default function Stats() {
 
   const bwPts = S.bodyweight.filter(b => range === 0 || (b.t || new Date(b.d).getTime()) > now - range * 86400000)
     .map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
-  const bw30 = S.bodyweight.filter(b => (b.t || new Date(b.d).getTime()) > now - 30 * 86400000)
-  const bwDelta30 = bw30.length > 1 ? bw30[bw30.length - 1].w - bw30[0].w : null
   const monthW = S.workouts.filter(w => w.d.slice(0, 7) === todayISO().slice(0, 7)).length
 
   const exHist = [...new Set(S.workouts.flatMap(w => w.entries.map(e => e.id)))].filter(id => EXIDX[id]).sort((a, b) => EXIDX[a].n < EXIDX[b].n ? -1 : 1)
@@ -225,7 +223,7 @@ export default function Stats() {
       const g = S.profile.goal
       const showGoal = cur != null && goal != null && (g === 'fatloss' || g === 'muscle' || g === 'recomp' || g === 'maintain')
       const rem = showGoal ? Math.round((goal - cur) * 10) / 10 : null
-      const cals = calorieSuggestion(S.profile, currentWeightKg(S))
+      const cals = calorieSuggestion(S.profile, currentWeightKg(S), S.unit)
       return (
         <div className="card">
           <h2 style={{ marginTop: 0 }}>{t('Your goal')} · {goalLabel(g)}</h2>
@@ -249,19 +247,15 @@ export default function Stats() {
           )}
           {cals && (
             <div className="small dim" style={{ marginTop: 12 }}>
-              {t('Estimated intake')}: {formatKcalRange(cals.low, cals.high)} · {t('Estimates only')}
+              {t('Estimated intake')}: {formatKcalRange(cals.low, cals.high)}
+              {cals.dailyDeficit != null && ` · ${t('Estimated deficit')}: ~${cals.dailyDeficit} kcal/day`}
+              {cals.weeksToGoal ? ` · ${t('~{0} weeks to goal', cals.weeksToGoal)}` : ''}
+              {' · '}{t('Estimates only')}
             </div>
           )}
         </div>
       )
     })()}
-
-    <div className="tiles">
-      <div className="tile"><div className="l"><Icon name="dumbbell" />{t('Workouts')}</div><div className="v">{S.workouts.length}</div></div>
-      <div className="tile"><div className="l"><Icon name="calendar" />{t('This month')}</div><div className="v">{monthW}</div></div>
-      <div className="tile"><div className="l"><Icon name="flame" />{t('Week streak')}</div><div className="v">{streak}</div></div>
-      <div className="tile"><div className="l"><Icon name="scale" />{t('Weight 30d')}</div><div className="v" style={{ fontSize: 22, color: bwDelta30 === null ? 'inherit' : bwDeltaColor(bwDelta30, (lastBW(S) || {}).w || 0) }}>{bwDelta30 === null ? '—' : (bwDelta30 > 0 ? '+' : '') + fmtNum(bwDelta30) + ' ' + S.unit}</div></div>
-    </div>
 
     <div className="card">
       <h2>{t('Activity — last 12 months')} <span className="dim" style={{ textTransform: 'none', letterSpacing: 0 }}>· {t('by time trained')}</span></h2>

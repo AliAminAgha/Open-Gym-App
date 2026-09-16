@@ -8,7 +8,7 @@ import { DAYN, fmtNum } from '../lib/format.js'
 import { lastBW } from '../lib/history.js'
 import { EXIDX, allExercises } from '../lib/exercises.js'
 import {
-  emptyProfile, GOALS, EXPERIENCE, ACTIVITY, STYLES, SESSION_OPTS, EQUIPMENT_CHIPS, goalLabel, currentWeightKg
+  emptyProfile, GOALS, EXPERIENCE, ACTIVITY, SESSION_OPTS, EQUIPMENT_CHIPS, goalLabel, currentWeightKg, LOSS_PACE
 } from '../lib/profile.js'
 import { calorieSuggestion, proteinSuggestion, formatKcalRange } from '../lib/calories.js'
 import { generatePlan, applyGeneratedPlanToState, formatDayPlan, schemeFor } from '../lib/plan-gen.js'
@@ -83,12 +83,7 @@ export default function TrainingSetup() {
   const bw = lastBW(S)
 
   const [step, setStep] = useState(0)
-  const [p, setP] = useState(() => ({
-    ...emptyProfile(),
-    ...(S.profile || {}),
-    ...(bw && !S.profile?.completedAt ? {} : {}),
-    // seed weight into bodyweight flow separately; height/age from profile
-  }))
+  const [p, setP] = useState(() => ({ ...emptyProfile(), ...(S.profile || {}) }))
   const [weight, setWeight] = useState(() => bw?.w ?? '')
   const [showWhy, setShowWhy] = useState(false)
   const [whyEx, setWhyEx] = useState(null)
@@ -102,7 +97,7 @@ export default function TrainingSetup() {
     return S.unit === 'lb' ? w * 0.453592 : w
   })()
 
-  const cals = useMemo(() => calorieSuggestion(p, kgForCalc), [p, kgForCalc])
+  const cals = useMemo(() => calorieSuggestion(p, kgForCalc, S.unit), [p, kgForCalc, S.unit])
   const protein = useMemo(() => proteinSuggestion(p, kgForCalc), [p, kgForCalc])
   const plan = useMemo(() => (key === 'plan' || step === STEPS.length - 1 ? generatePlan(p, S) : null), [p, S, key, step])
   const dayRows = plan ? formatDayPlan(plan) : []
@@ -112,7 +107,12 @@ export default function TrainingSetup() {
     if (key === 'goal') {
       const g = GOALS.find(x => x.id === p.goal)
       if (!g) return false
-      if (g.needsTarget && !(p.targetW > 0)) return false
+      const cur = Number(weight)
+      if (g.needsTarget) {
+        if (!(p.targetW > 0)) return false
+        if (p.goal === 'fatloss') return p.targetW < cur
+        if (p.goal === 'muscle') return p.targetW > cur
+      }
       return true
     }
     if (key === 'training') return p.daysPerWeek >= 2 && p.sessionMin && p.activity
@@ -126,10 +126,17 @@ export default function TrainingSetup() {
       s.profile = {
         ...emptyProfile(),
         ...p,
+        style: 'custom',
         completedAt: p.completedAt || now,
         updatedAt: now
       }
-      if (p.targetW > 0) s.targetW = p.targetW
+      if (p.targetW > 0) {
+        s.targetW = p.targetW
+        if (p.goal === 'fatloss') {
+          const cur = Number(weight)
+          if (cur > p.targetW) s.profile.lossAmount = Math.round((cur - p.targetW) * 10) / 10
+        }
+      }
       const w = Number(weight)
       if (w > 0) {
         const d = new Date().toISOString().slice(0, 10)
@@ -221,18 +228,51 @@ export default function TrainingSetup() {
         {key === 'goal' && (
           <>
             <h2 style={{ marginTop: 0 }}>{t('What is your primary goal?')}</h2>
-            <ChoiceList options={GOALS} value={p.goal} onChange={v => set({ goal: v, targetW: GOALS.find(g => g.id === v)?.needsTarget ? p.targetW : null })} />
+            <ChoiceList options={GOALS} value={p.goal} onChange={v => set({
+              goal: v,
+              targetW: GOALS.find(g => g.id === v)?.needsTarget ? p.targetW : null,
+              lossAmount: null
+            })} />
 
             {GOALS.find(g => g.id === p.goal)?.needsTarget && (
-              <label className="field-block" style={{ marginTop: 8 }}>
-                <span className="lbl">{t('Target weight')} ({S.unit})</span>
-                <NumberField decimal value={p.targetW ?? ''} onChange={v => set({ targetW: v })} />
+              <>
+                <label className="field-block" style={{ marginTop: 8 }}>
+                  <span className="lbl">{t('Target weight')} ({S.unit})</span>
+                  <NumberField
+                    decimal
+                    value={p.targetW ?? ''}
+                    onChange={v => {
+                      const cur = Number(weight)
+                      const lossAmount = p.goal === 'fatloss' && cur > 0 && v > 0
+                        ? Math.round((cur - v) * 10) / 10
+                        : null
+                      set({ targetW: v, lossAmount })
+                    }}
+                  />
+                </label>
                 {Number(weight) > 0 && p.targetW > 0 && (
-                  <div className="small muted" style={{ marginTop: 8 }}>
+                  <div className="small muted" style={{ marginBottom: p.goal === 'fatloss' ? 12 : 0 }}>
                     {t('Current')}: {fmtNum(Number(weight))} {S.unit} → {t('Goal')}: {fmtNum(p.targetW)} {S.unit}
+                    {p.goal === 'fatloss' && p.targetW < Number(weight) && (
+                      <> · {t('To lose')}: {fmtNum(Math.round((Number(weight) - p.targetW) * 10) / 10)} {S.unit}</>
+                    )}
                   </div>
                 )}
-              </label>
+                {p.goal === 'fatloss' && (
+                  <>
+                    <h4 className="sec">{t('How fast?')}</h4>
+                    <div className="muted small" style={{ marginBottom: 10 }}>{t('Pace changes your daily calorie deficit.')}</div>
+                    <Segmented
+                      value={p.lossPace || 'moderate'}
+                      onChange={v => set({ lossPace: v })}
+                      options={LOSS_PACE.map(o => ({
+                        value: o.id,
+                        label: t(o.label) + ` (~${S.unit === 'lb' ? Math.round(o.kgPerWeek / 0.453592 * 10) / 10 : o.kgPerWeek}/${t('wk')})`
+                      }))}
+                    />
+                  </>
+                )}
+              </>
             )}
 
             {cals && (
@@ -250,7 +290,22 @@ export default function TrainingSetup() {
                     <div className="small dim">kcal/day</div>
                   </div>
                 </div>
-                {cals.bmr && <div className="small dim" style={{ marginTop: 10 }}>{t('BMR (Mifflin-St Jeor)')}: ~{cals.bmr} kcal · {t('Protein')}: ~{protein} g</div>}
+                {cals.dailyDeficit != null && (p.goal === 'fatloss' || p.goal === 'recomp') && (
+                  <div className="calorie-highlight">
+                    <div>
+                      <div className="small muted">{t('Estimated deficit')}</div>
+                      <div className="big" style={{ fontSize: 28, color: 'var(--acc)' }}>~{cals.dailyDeficit}</div>
+                      <div className="small dim">kcal/day</div>
+                    </div>
+                    {cals.weeksToGoal != null && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="small muted">{t('Time to goal')}</div>
+                        <div className="big" style={{ fontSize: 28 }}>~{cals.weeksToGoal}</div>
+                        <div className="small dim">{t('weeks')}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -306,9 +361,6 @@ export default function TrainingSetup() {
               ))}
             </div>
 
-            <h4 className="sec">{t('Preferred training style')}</h4>
-            <ChoiceList options={STYLES} value={p.style || 'custom'} onChange={v => set({ style: v === 'custom' ? 'custom' : v })} />
-
             <ExPickerMini label={t('Favorite exercises (optional)')} selected={p.favorites} onToggle={toggleFav} S={S} />
             <ExPickerMini label={t('Exercises to avoid (optional)')} selected={p.avoid} onToggle={toggleAvoid} S={S} />
           </>
@@ -339,7 +391,7 @@ export default function TrainingSetup() {
                   <div key={row.day} className="plan-day-card">
                     <div className="dow">{t(row.dayName)}</div>
                     <div className="body">
-                      <div className="rt">{r.name}</div>
+                      <div className="rt">{t('Workout')}</div>
                       <div className="ss">
                         {r.ex.length} {t('exercises')} · ~{mins} {t('min')}
                         {muscles.length ? ` · ${muscles.map(m => t(m)).join(', ')}` : ''}

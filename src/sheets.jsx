@@ -11,7 +11,7 @@ import { starterRoutines } from './lib/starter.js'
 import Media, { Thumb } from './components/Media.jsx'
 import Stepper from './components/Stepper.jsx'
 import Icon from './components/Icon.jsx'
-import { Button, Slider, Switch, Segmented, SelectRow, TextArea } from './components/ui.jsx'
+import { Button, Slider, Switch, Segmented, SelectRow, TextArea, TextField } from './components/ui.jsx'
 import { glyphOf, GLYPH_GROUPS, DEFAULT_GLYPH } from './lib/glyphs.js'
 import BodyMap from './components/BodyMap.jsx'
 import { loadOfWorkouts } from './lib/muscles.js'
@@ -20,7 +20,12 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
+import { buildMySummary, partnerShareUrl, decodePartnerLink } from './lib/partner.js'
+import { partnerInvite, partnerAccept, partnerUnlink } from './lib/partner-api.js'
+import { STATIC } from './lib/static.js'
+import { DEMO } from './lib/demo.js'
 import { volumeCompare } from './lib/insights.js'
+import { HomeWidgetsEditor } from './components/home/HomeWidgets.jsx'
 import { estimateWorkoutKcal } from './lib/calories.js'
 
 const S = () => useStore.getState().S
@@ -44,6 +49,10 @@ export function confirmSheet(opts) {
   ui().openSheet(close => <ConfirmDialog {...opts} close={close} />, { kind: 'center' })
 }
 
+export function homeWidgetsSheet() {
+  ui().openSheet(close => <HomeWidgetsEditor close={close} />)
+}
+
 /* ============================ starter plan ============================ */
 export function loadStarterPlan() {
   const [push, pull, legs] = starterRoutines()
@@ -51,7 +60,7 @@ export function loadStarterPlan() {
     st.routines.push(push, pull, legs)
     st.week[1] = push.id; st.week[3] = pull.id; st.week[5] = legs.id
   })
-  toast(t('Starter plan loaded — Mon Push · Wed Pull · Fri Legs'))
+  toast(t('Starter plan loaded — Mon · Wed · Fri'))
 }
 
 /* ============================ weight picker (shared: body weight + goal) ============================ */
@@ -665,6 +674,159 @@ function PlanImport({ bundle, close }) {
     <Button variant="primary" onClick={apply}>{t('Add to my plan')}</Button>
     <div style={{ height: 8 }} />
     <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
+  </>
+}
+
+/* ============================ partner progress sharing ============================ */
+export const partnerSheet = () => ui().openSheet(close => <PartnerTools close={close} />)
+
+function PartnerTools({ close }) {
+  const st = useStore(s => s.S)
+  const user = useStore(s => s.user)
+  const partner = useStore(s => s.partner)
+  const partnerApi = useStore(s => s.partnerApi)
+  const { importPartner, clearPartner, pullPartner } = useStore()
+  const fileRef = useRef(null)
+  const [paste, setPaste] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
+  const [pendingCode, setPendingCode] = useState('')
+  const canApi = !!(user && !DEMO && !STATIC && !MOBILE)
+
+  const shareSummary = async () => {
+    const summary = buildMySummary(st, user?.name || '')
+    const json = JSON.stringify(summary, null, 2)
+    const link = partnerShareUrl(summary)
+    if (MOBILE) {
+      try { await shareExport(json, 'opengym-partner-' + todayISO() + '.json') } catch (e) { /* dismissed */ }
+      close()
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(link)
+      toast(t('Partner link copied — send it to your partner'))
+    } catch (e) {
+      const blob = new Blob([json], { type: 'application/json' })
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+      a.download = 'opengym-partner-' + todayISO() + '.json'; a.click(); URL.revokeObjectURL(a.href)
+      toast(t('Progress file saved — send it to your partner'))
+    }
+    close()
+  }
+
+  const importFromText = text => {
+    try {
+      let raw = text.trim()
+      if (raw.includes('d=')) {
+        const q = raw.includes('?') ? raw.split('?').pop() : raw
+        const m = q.match(/(?:^|&)d=([^&]+)/)
+        if (m) raw = decodePartnerLink(decodeURIComponent(m[1]))
+        else throw new Error('bad link')
+      } else if (raw.startsWith('{')) {
+        raw = JSON.parse(raw)
+      } else {
+        raw = JSON.parse(raw)
+      }
+      const p = importPartner(typeof raw === 'string' ? raw : raw)
+      setPaste('')
+      toast(t('Linked with {0}', p.name || t('your partner')))
+      close()
+    } catch (e) {
+      toast(t('Import failed: {0}', e.message))
+    }
+  }
+
+  const pickFile = ev => {
+    const f = ev.target.files[0]; ev.target.value = ''; if (!f) return
+    const rd = new FileReader()
+    rd.onload = () => importFromText(rd.result)
+    rd.readAsText(f)
+  }
+
+  const doInvite = async () => {
+    try {
+      const { code } = await partnerInvite()
+      setPendingCode(code)
+      toast(t('Invite code created — share it with your partner'))
+    } catch (e) { toast(t('Partner sync isn’t available on this server yet')) }
+  }
+
+  const doAccept = async () => {
+    if (!inviteCode.trim()) return
+    try {
+      await partnerAccept(inviteCode.trim())
+      await pullPartner()
+      setInviteCode('')
+      toast(t('Partner linked'))
+      close()
+    } catch (e) { toast(e.message || t('Could not link partner')) }
+  }
+
+  const doUnlink = () => {
+    confirmSheet({
+      title: t('Unlink partner?'),
+      message: t('Your partner’s progress will no longer show on your Home screen.'),
+      confirmText: t('Unlink'), danger: true,
+      onConfirm: async () => {
+        if (canApi && partnerApi) { try { await partnerUnlink() } catch (e) { /* local unlink anyway */ } }
+        clearPartner()
+        toast(t('Partner unlinked'))
+        close()
+      }
+    })
+  }
+
+  return <>
+    <h3>{t('Partner')}</h3>
+    <div className="muted small" style={{ marginBottom: 16, lineHeight: 1.45 }}>
+      {t('Only summary stats are shared — not individual sets or full weight history.')}
+    </div>
+
+    {partner && <>
+      <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
+        <div className="tt">{partner.name || t('Your partner')}</div>
+        <div className="small dim">{t('Last updated {0}', fmtDate(partner.summary?.exported || todayISO()))}</div>
+      </div>
+      {canApi && partnerApi && (
+        <Button variant="tinted" icon="reset" onClick={() => pullPartner().then(() => toast(t('Partner progress refreshed')))}>
+          {t('Refresh from server')}
+        </Button>
+      )}
+      <div style={{ height: 8 }} />
+      <Button variant="ghost" icon="link" onClick={doUnlink}>{t('Unlink partner')}</Button>
+      <div style={{ height: 16 }} />
+    </>}
+
+    <Button variant="primary" icon="upload" onClick={shareSummary}>{t('Share my progress')}</Button>
+    <div className="dim small" style={{ margin: '7px 2px 0', lineHeight: 1.4 }}>
+      {t('Send a link or file so your partner can see your streak, workouts and goal progress.')}
+    </div>
+
+    {canApi && <>
+      <h4 className="sec">{t('Link automatically')}</h4>
+      <Button variant="tinted" icon="sparkles" onClick={doInvite}>{t('Create invite code')}</Button>
+      {pendingCode && <div className="card" style={{ padding: '12px 14px', marginTop: 10, textAlign: 'center' }}>
+        <div className="small dim">{t('Invite code')}</div>
+        <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: 4, marginTop: 4 }}>{pendingCode}</div>
+        <div className="dim small" style={{ marginTop: 6 }}>{t('Expires in 24 hours')}</div>
+      </div>}
+      <div style={{ height: 12 }} />
+      <TextField placeholder={t('Enter partner’s code')} value={inviteCode} onChange={e => setInviteCode(e.target.value)} />
+      <div style={{ height: 8 }} />
+      <Button variant="primary" onClick={doAccept} disabled={!inviteCode.trim()}>{t('Link with code')}</Button>
+      <div className="dim small" style={{ margin: '7px 2px 0', lineHeight: 1.4 }}>
+        {t('Works when your server has partner sync enabled.')}
+      </div>
+    </>}
+
+    <h4 className="sec">{partner ? t('Update partner’s progress') : t('Add your partner')}</h4>
+    <TextField placeholder={t('Paste partner link or JSON')} value={paste} onChange={e => setPaste(e.target.value)} />
+    <div style={{ height: 8 }} />
+    <Button variant="tinted" icon="download" onClick={() => importFromText(paste)} disabled={!paste.trim()}>
+      {partner ? t('Refresh partner data') : t('Add partner')}
+    </Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" icon="folder" onClick={() => fileRef.current?.click()}>{t('Import partner file')}</Button>
+    <input ref={fileRef} type="file" accept="application/json,.json" onChange={pickFile} hidden />
   </>
 }
 

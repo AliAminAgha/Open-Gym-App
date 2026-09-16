@@ -2,7 +2,7 @@
   "appId": "app.opengym.mobile",
   "appName": "Open Gym",
   "webDir": "dist",
-  "backgroundColor": "#060708",
+  "backgroundColor": "#000000",
   "android": {
     "allowMixedContent": false
   }

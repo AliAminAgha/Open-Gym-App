@@ -8,8 +8,8 @@
   "display": "standalone",
   "display_override": ["standalone", "browser"],
   "orientation": "portrait",
-  "background_color": "#060708",
-  "theme_color": "#060708",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "categories": ["health", "fitness", "lifestyle"],
   "icons": [
     {

@@ -61,8 +61,8 @@ const monday = date => { const d = new Date(date); d.setDate(d.getDate() - ((d.g
 // per-set effort ratings on most (not all) of it.
 export function buildDemoState() {
   const rnd = rng(20260723)
-  const [push, pull, legs] = starterRoutines()
-  const byWeekday = { 1: push, 3: pull, 5: legs }
+  const [mon, wed, fri] = starterRoutines()
+  const byWeekday = { 1: mon, 3: wed, 5: fri }
 
   const nowH = new Date().getHours()
   const today = new Date(); today.setHours(12, 0, 0, 0)
@@ -143,19 +143,78 @@ export function buildDemoState() {
   const dayPlan = {}
   const tIso = isoOf(today)
   if (!byWeekday[today.getDay()] && !workouts.some(w => w.d === tIso)) {
-    const order = [push, pull, legs]
-    const lastName = workouts.length ? workouts[workouts.length - 1].name : legs.name
+    const order = [mon, wed, fri]
+    const lastName = workouts.length ? workouts[workouts.length - 1].name : fri.name
     dayPlan[tIso] = order[(order.findIndex(r => r.name === lastName) + 1) % order.length].id
   }
 
   return {
-    routines: [push, pull, legs],
-    week: { 1: push.id, 3: pull.id, 5: legs.id },
+    routines: [mon, wed, fri],
+    week: { 1: mon.id, 3: wed.id, 5: fri.id },
     dayPlan,
     workouts, bodyweight, exWeights,
     targetW: TARGET_W,
+    homeWidgets: ['goal', 'stats', 'partner'],
     // The history is rated, so the demo turns the column on and the stats get a scale to
     // label their aggregates with instead of guessing one (see displayScale).
-    effort: 'rir'
+    effort: 'rir',
+    profile: {
+      completedAt: Date.now(),
+      age: 28,
+      sex: 'male',
+      heightCm: 178,
+      experience: 'intermediate',
+      goal: 'fatloss',
+      targetW: TARGET_W,
+      lossAmount: Math.round((BW_FROM - TARGET_W) * 10) / 10,
+      lossPace: 'moderate',
+      daysPerWeek: 3,
+      sessionMin: 60,
+      preferredDays: [1, 3, 5],
+      activity: 'moderate',
+      location: 'gym',
+      equipment: [],
+      style: 'custom',
+      favorites: [],
+      avoid: [],
+      nutrition: { enabled: true, calorieTarget: 2200, proteinTarget: 160, log: [] }
+    }
+  }
+}
+
+/** Dummy partner snapshot for demo / design preview (summary-only, no workout logs). */
+export function buildDemoPartnerSummary() {
+  const today = new Date()
+  const todayStr = isoOf(today)
+  const monday = new Date(today)
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+  // Mon–Sun: partner trained Mon, Tue, Thu, Fri and today (Sun) — Wed/Sat rest
+  const weekActivity = []
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    const iso = isoOf(d)
+    weekActivity.push(iso === todayStr || [0, 1, 3, 4].includes(i))
+  }
+  return {
+    opengym_partner: 1,
+    name: 'Zainab',
+    accent: '#ff2d9a',
+    exported: todayStr,
+    streakWeeks: 6,
+    workoutsThisMonth: 11,
+    totalWorkouts: 48,
+    weekActivity,
+    goal: {
+      type: 'muscle',
+      typeLabel: 'Build muscle / gain weight',
+      currentW: 68,
+      targetW: 72,
+      toGoal: 4,
+      weeks: 16,
+      unit: 'kg'
+    },
+    lastWorkoutDate: todayStr,
+    trainedToday: true
   }
 }

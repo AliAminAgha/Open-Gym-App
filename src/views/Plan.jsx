@@ -86,7 +86,7 @@ export default function Plan() {
           ) : (
             <>
               <div className="empty"><div className="ico"><Icon name="clipboard" /></div>{t('No routines yet.')}<br />{t('Create one or load the starter plan.')}</div>
-              <Button icon="sparkles" onClick={loadStarterPlan}>{t('Load starter plan (Push / Pull / Legs)')}</Button>
+              <Button icon="sparkles" onClick={loadStarterPlan}>{t('Load starter plan')}</Button>
             </>
           )}
         </div>

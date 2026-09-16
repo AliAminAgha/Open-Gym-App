@@ -11,3 +11,4 @@ ios
 !.env.development
 !.env.production
 .vercel
+.env*

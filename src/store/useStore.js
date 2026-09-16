@@ -5,6 +5,8 @@ import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
 import { STATIC } from '../lib/static.js'
+import { loadPartnerCache, savePartnerCache, importPartnerSummary, buildMySummary } from '../lib/partner.js'
+import { partnerGet, partnerPushSummary, partnerApiAvailable } from '../lib/partner-api.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
@@ -22,7 +24,9 @@ export const DEF = {
   // bounds live in lib/coach.js.
   coach: null,
   // Rule-based Training Setup profile (lib/profile.js). Independent of the AI Coach.
-  profile: null
+  profile: null,
+  // Optional home dashboard widgets (fixed week/today/nutrition always show).
+  homeWidgets: null
 }
 const clone = o => JSON.parse(JSON.stringify(o))
 
@@ -37,7 +41,9 @@ function loadState() {
 const hasData = st => !!((st.workouts || []).length || (st.routines || []).length || (st.bodyweight || []).length)
 
 export const useStore = create((set, get) => {
+  const partnerSyncEnabled = () => get().user && !DEMO && !STATIC && !MOBILE
   let pushTm = null
+  let partnerPushTm = null
   let saveTm = null
 
   // Mobile build: mirror the state into a file in the app's data directory (survives WebView
@@ -56,6 +62,8 @@ export const useStore = create((set, get) => {
     if (push && get().user) {
       clearTimeout(pushTm)
       pushTm = setTimeout(() => get().pushState(), 1500)
+      clearTimeout(partnerPushTm)
+      partnerPushTm = setTimeout(() => get().pushPartnerSummary(), 1500)
     }
   }
 
@@ -64,6 +72,10 @@ export const useStore = create((set, get) => {
   // same applies to the file mirror — backgrounding is often the last thing before the OS
   // kills the app.
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && get().partnerApi) {
+      get().pullPartner()
+      return
+    }
     if (document.visibilityState !== 'hidden') return
     if (MOBILE && saveTm) {
       clearTimeout(saveTm)
@@ -74,6 +86,11 @@ export const useStore = create((set, get) => {
       clearTimeout(pushTm)
       pushTm = null
       get().pushState()
+    }
+    if (partnerPushTm) {
+      clearTimeout(partnerPushTm)
+      partnerPushTm = null
+      get().pushPartnerSummary()
     }
   })
 
@@ -94,6 +111,51 @@ export const useStore = create((set, get) => {
     // owner has both enabled the Coach and connected a provider — every Coach entry point in
     // the app hangs off it, so an unconfigured instance renders exactly what it always did.
     config: null,
+    partner: loadPartnerCache(),
+    partnerApi: false,
+
+    setPartner(p) {
+      savePartnerCache(p)
+      set({ partner: p })
+    },
+    clearPartner() {
+      savePartnerCache(null)
+      set({ partner: null })
+    },
+    importPartner(raw) {
+      const p = importPartnerSummary(raw)
+      set({ partner: p })
+      return p
+    },
+
+    async pushPartnerSummary() {
+      if (!partnerSyncEnabled()) return
+      clearTimeout(partnerPushTm)
+      if (!get().partnerApi) return
+      try {
+        const summary = buildMySummary(get().S, get().user?.name || '')
+        await partnerPushSummary(summary)
+      } catch (e) { /* offline or API not deployed */ }
+    },
+    async pullPartner() {
+      if (!partnerSyncEnabled()) return
+      try {
+        const ok = await partnerApiAvailable()
+        set({ partnerApi: ok })
+        if (!ok) return
+        const { partner: p } = await partnerGet()
+        if (p?.summary) {
+          get().setPartner({
+            id: p.id || p.name,
+            name: p.name || '',
+            linkedAt: p.linkedAt || Date.now(),
+            summary: p.summary,
+            summaryTs: p.summaryTs || Date.parse(p.summary?.exported) || Date.now()
+          })
+        }
+        await get().pushPartnerSummary()
+      } catch (e) { /* no partner linked or API unavailable */ }
+    },
 
     // Mutate a draft of S via producer fn, then persist + schedule sync.
     update(mut, push = true) {
@@ -151,9 +213,13 @@ export const useStore = create((set, get) => {
     // Demo build only: drop the seeded example profile back in (Settings → "Reset demo data").
     // Dynamic import so the generator never ships in a self-hosted bundle.
     async resetDemo() {
-      const { buildDemoState } = await import('../lib/demoSeed.js')
+      const { buildDemoState, buildDemoPartnerSummary } = await import('../lib/demoSeed.js')
+      const { partnerFromSummary, savePartnerCache } = await import('../lib/partner.js')
       localStorage.removeItem('gym_dirty')
       persist(Object.assign(clone(DEF), buildDemoState()), false)
+      const demoPartner = partnerFromSummary(buildDemoPartnerSummary())
+      savePartnerCache(demoPartner)
+      set({ partner: demoPartner })
     },
 
     // Boot: ask the server who we are, then pull.
@@ -175,9 +241,13 @@ export const useStore = create((set, get) => {
       }
       // Demo build (GitHub Pages): no backend at all — seed once, stay in guest mode.
       if (DEMO) {
-        if (!localStorage.getItem(DEMO_SEEDED)) {
+        if (!localStorage.getItem(DEMO_SEEDED) || !hasData(get().S)) {
           localStorage.setItem(DEMO_SEEDED, '1')
           await get().resetDemo()
+        } else {
+          const { seedDemoPartnerIfEmpty } = await import('../lib/partner.js')
+          const p = await seedDemoPartnerIfEmpty(get().setPartner)
+          if (p) set({ partner: p })
         }
         get().setGuest(true)
         set({ ready: true })
@@ -201,10 +271,15 @@ export const useStore = create((set, get) => {
         if (get().S.reminder?.on && get().S.reminder.tz !== tz) {
           get().update(s => { s.reminder = { ...s.reminder, tz } })
         }
+        await get().pullPartner()
       } catch (e) {
         if (e.status === 401) get().setUser(null)
       }
       set({ ready: true })
+    },
+
+    async refreshPartnerFromApi() {
+      await get().pullPartner()
     }
   }
 })

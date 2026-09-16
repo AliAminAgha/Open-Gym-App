@@ -11,7 +11,7 @@ import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { STATIC } from '../lib/static.js'
-import { loadStarterPlan, confirmSheet, importFromApp } from '../sheets.jsx'
+import { loadStarterPlan, confirmSheet, importFromApp, partnerSheet } from '../sheets.jsx'
 import { coachAvailable, hasConsent } from '../lib/coach.js'
 import { forgetCoach } from '../lib/coach-api.js'
 import Icon from '../components/Icon.jsx'
@@ -22,6 +22,7 @@ export default function Settings() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
   const user = useStore(s => s.user)
+  const partner = useStore(s => s.partner)
   const config = useStore(s => s.config)
   const { update, replaceState, setUser, pullState, pushState, signOut, signOutAll, resetDemo } = useStore()
   const toast = useUI(s => s.toast)
@@ -149,10 +150,25 @@ export default function Settings() {
       </Row>
     </Section>
 
+    <Section title={t('Partner')} footer={t('Only summary stats are shared — not individual sets or full weight history.')}>
+      <Row icon="link" iconTint="var(--pink)" title={t('Partner progress')}
+        subtitle={partner?.name
+          ? t('Linked with {0}', partner.name)
+          : t('Share streaks and goals with your partner')}
+        accessory="chevron" onClick={partnerSheet} />
+    </Section>
+
     <Section title={t('Training')} footer={t('Personalized plan and calorie estimates — rule-based, editable anytime.')}>
-      <Row icon="sparkles" iconTint="var(--acc)" title={t('Training Setup')}
-        subtitle={S.profile?.completedAt ? t('Edit goals, schedule and preferences') : t('Build your personalized plan')}
-        accessory="chevron" onClick={() => nav('/setup' + (S.profile?.completedAt ? '?edit=1' : ''))} />
+      <Row
+        icon="sparkles"
+        iconTint="var(--acc)"
+        title={S.profile?.completedAt ? t('Restart onboarding') : t('Get started')}
+        subtitle={S.profile?.completedAt
+          ? t('Update goals, schedule and calories')
+          : t('Build your personalized plan')}
+        accessory="chevron"
+        onClick={() => nav(S.profile?.completedAt ? '/onboarding?restart=1' : '/onboarding')}
+      />
       <Row icon="flame" iconTint="var(--orange)" title={t('Nutrition')}
         subtitle={t('Optional calorie & protein tracking')}
         accessory="chevron" onClick={() => nav('/nutrition')} />
@@ -202,7 +218,7 @@ export default function Settings() {
 
     {/* ---------- data: fill it, bring things over, back it up, wipe it ---------- */}
     <Section title={t('Data')}>
-      <Row icon="sparkles" iconTint="var(--acc)" title={t('Load starter plan (PPL)')} accessory="chevron" onClick={loadStarterPlan} />
+      <Row icon="sparkles" iconTint="var(--acc)" title={t('Load starter plan')} accessory="chevron" onClick={loadStarterPlan} />
       <Row icon="shuffle" iconTint="var(--teal)" title={t('Import from another app')}
         subtitle={t('FitNotes, Strong, Hevy — or body weight from Apple Health')}
         accessory="chevron" onClick={() => importRef.current.click()} />

@@ -167,7 +167,7 @@ const TEMPLATES = {
   }
 }
 
-function buildRoutine(key, profile, ctx, S) {
+function buildRoutine(key, profile, ctx, S, displayName) {
   const tpl = TEMPLATES[key]
   const budget = exerciseBudget(profile.sessionMin || 45, profile.experience)
   const roles = tpl.roles.slice(0, budget)
@@ -196,7 +196,7 @@ function buildRoutine(key, profile, ctx, S) {
   }
   return {
     id: uid(),
-    name: tpl.name,
+    name: displayName || 'Workout',
     emoji: tpl.emoji,
     prog: profile.goal === 'strength' ? 'linear' : 'double',
     ex,
@@ -270,17 +270,12 @@ export function suggestStartWeight(S, profile, exId) {
 }
 
 export function whyPlan(profile) {
-  const style = resolveStyle(profile)
   const days = profile.daysPerWeek || 3
   const goal = goalLabel(profile.goal)
-  const styleTxt = {
-    fullbody: 'a Full Body split so each muscle is trained often with shorter sessions',
-    upperlower: 'an Upper/Lower split so major groups get hit twice per week',
-    ppl: 'a Push / Pull / Legs split that matches higher training frequency'
-  }[style]
-  return `You train ${days} days per week and want to ${goal.toLowerCase() || 'improve'}. ` +
-    `At ~${profile.sessionMin || 45} minutes per session, ${styleTxt}. ` +
-    `Experience level: ${experienceLabel(profile.experience) || 'not set'}.`
+  const mins = profile.sessionMin || 45
+  const xp = experienceLabel(profile.experience) || 'not set'
+  return `You train ${days} days per week (~${mins} min) and want to ${goal.toLowerCase() || 'improve'}. ` +
+    `Experience level: ${xp}. Exercises are picked to match your goal and equipment — tweak anything anytime.`
 }
 
 /**
@@ -303,17 +298,15 @@ export function generatePlan(profile, S = null) {
   else if (style === 'upperlower') keys = days.map((_, i) => (i % 2 === 0 ? 'upper' : 'lower'))
   else keys = days.map((_, i) => ['push', 'pull', 'legs'][i % 3])
 
-  // Unique routines for repeating keys
-  const cache = {}
+  // One routine per training day, named by weekday — no Push/Pull/Full Body labels in the UI.
   const routines = []
   const week = {}
   keys.forEach((key, i) => {
-    if (!cache[key]) {
-      ctx.used = new Set() // allow same patterns across different day types
-      cache[key] = buildRoutine(key, profile, ctx, S)
-      routines.push(cache[key])
-    }
-    week[days[i]] = cache[key].id
+    const day = days[i]
+    ctx.used = new Set()
+    const r = buildRoutine(key, profile, ctx, S, DAYN[day])
+    routines.push(r)
+    week[day] = r.id
   })
 
   const estMin = profile.sessionMin || 45
@@ -326,8 +319,7 @@ export function generatePlan(profile, S = null) {
       goal: goalLabel(profile.goal),
       experience: experienceLabel(profile.experience),
       frequency: `${days.length} days/week`,
-      session: `~${estMin} min`,
-      style
+      session: `~${estMin} min`
     },
     why: whyPlan(profile)
   }

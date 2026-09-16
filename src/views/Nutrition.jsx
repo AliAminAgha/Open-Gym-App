@@ -25,7 +25,7 @@ export default function Nutrition() {
   const [protein, setProtein] = useState(entry.protein ?? '')
 
   const kg = currentWeightKg(S)
-  const cals = calorieSuggestion(profile, kg)
+  const cals = calorieSuggestion(profile, kg, S.unit)
   const protSug = proteinSuggestion(profile, kg)
   const targetK = nut.calorieTarget || (cals ? Math.round((cals.low + cals.high) / 2) : null)
   const targetP = nut.proteinTarget || protSug
@@ -68,7 +68,7 @@ export default function Nutrition() {
         </div>
         <div className="card">
           <div className="muted small" style={{ marginBottom: 12 }}>{t('Complete Training Setup first to get calorie estimates.')}</div>
-          <Button variant="primary" onClick={() => nav('/setup')}>{t('Training Setup')}</Button>
+          <Button variant="primary" onClick={() => nav('/onboarding')}>{t('Get started')}</Button>
         </div>
       </div>
     )
